@@ -2,7 +2,10 @@ defmodule Swoosh.Adapters.AmazonSESTest do
   use Swoosh.AdapterCase, async: true
 
   import Swoosh.Email
+  import ExUnit.CaptureLog
   alias Swoosh.Adapters.AmazonSES
+
+  require Logger
 
   @success_response """
   <SendEmailResponse>
@@ -24,6 +27,10 @@ defmodule Swoosh.Adapters.AmazonSESTest do
     </Error>
     <RequestId>a97266f7-b062-11e7-b126-6b0f7a9b3379</RequestId>
   </ErrorResponse>
+  """
+
+  @malformed_error_response """
+  <Malformed>
   """
 
   setup_all do
@@ -152,6 +159,26 @@ defmodule Swoosh.Adapters.AmazonSESTest do
     end
 
     assert AmazonSES.deliver(email, config) == {:error, %{code: "ErrorCode", message: "Error Message"}}
+  end
+
+  @tag capture_log: true
+  test "a sent email that returns a malformed api error", %{bypass: bypass, config: config, valid_email: email} do
+    Bypass.expect bypass, fn conn ->
+      conn = parse(conn)
+      expected_path = "/"
+
+      assert expected_path == conn.request_path
+      assert "POST" == conn.method
+
+      Plug.Conn.resp(conn, 500, @malformed_error_response)
+    end
+
+    assert catch_exit(AmazonSES.deliver(email, config)) ==
+      {:fatal, {:unexpected_end, {:file, :file_name_unknown}, {:line, 2}, {:col, 1}}}
+
+    assert capture_log(fn ->
+      Logger.error("Malformed response body: #{@malformed_error_response}")
+    end) =~ "Malformed response body: <Malformed>"
   end
 
   test "validate_config/1 with valid config", %{config: config} do
