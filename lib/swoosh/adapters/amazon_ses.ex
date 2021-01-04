@@ -90,7 +90,13 @@ defmodule Swoosh.Adapters.AmazonSES do
         {:ok, parse_response(body)}
 
       {:ok, code, _headers, body} when code > 399 ->
-        {:error, parse_error_response(body)}
+        case body do
+          "" ->
+            Logger.error("Empty response with code: #{code}")
+            {:error, %{code: "ServiceUnavailable", message: "Empty response from SES"}}
+          _ ->
+            {:error, parse_error_response(body)}
+        end
 
       {_, reason} ->
         {:error, reason}

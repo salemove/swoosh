@@ -29,6 +29,9 @@ defmodule Swoosh.Adapters.AmazonSESTest do
   </ErrorResponse>
   """
 
+  @empty_error_response """
+  """
+
   @malformed_error_response """
   <Malformed>
   """
@@ -159,6 +162,26 @@ defmodule Swoosh.Adapters.AmazonSESTest do
     end
 
     assert AmazonSES.deliver(email, config) == {:error, %{code: "ErrorCode", message: "Error Message"}}
+  end
+
+  @tag capture_log: true
+  test "a sent email that returns an empty api error", %{bypass: bypass, config: config, valid_email: email} do
+    Bypass.expect bypass, fn conn ->
+      conn = parse(conn)
+      expected_path = "/"
+
+      assert expected_path == conn.request_path
+      assert "POST" == conn.method
+
+      Plug.Conn.resp(conn, 500, @empty_error_response)
+    end
+
+    assert AmazonSES.deliver(email, config) ==
+      {:error, %{code: "ServiceUnavailable", message: "Empty response from SES"}}
+
+    assert capture_log(fn ->
+      AmazonSES.deliver(email, config)
+    end) =~ "Empty response with code: 500"
   end
 
   @tag capture_log: true
