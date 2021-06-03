@@ -61,6 +61,8 @@ defmodule Swoosh.Adapters.AmazonSES do
   You can do that by adding `security_token` to `provider_options`.
   """
 
+  require Logger
+
   use Swoosh.Adapter,
     required_config: [:region, :access_key, :secret],
     required_deps: [gen_smtp: :mimemail]
@@ -88,7 +90,13 @@ defmodule Swoosh.Adapters.AmazonSES do
         {:ok, parse_response(body)}
 
       {:ok, code, _headers, body} when code > 399 ->
-        {:error, parse_error_response(body)}
+        case body do
+          "" ->
+            Logger.error("Empty response with code: #{code}")
+            {:error, %{code: "ServiceUnavailable", message: "Empty response from SES"}}
+          _ ->
+            {:error, parse_error_response(body)}
+        end
 
       {_, reason} ->
         {:error, reason}
@@ -104,12 +112,23 @@ defmodule Swoosh.Adapters.AmazonSES do
   end
 
   defp parse_error_response(body) do
-    node = XMLHelper.parse(body)
+    try do
+      node = XMLHelper.parse(body)
 
-    code = XMLHelper.first_text(node, "//Error/Code")
-    message = XMLHelper.first_text(node, "//Message")
+      code = XMLHelper.first_text(node, "//Error/Code")
+      message = XMLHelper.first_text(node, "//Message")
 
-    %{code: code, message: message}
+      %{code: code, message: message}
+    rescue
+      error ->
+        Logger.error("Malformed response body: #{body}", error: error)
+        %{code: "MalformedResponse", message: "Malformed response from AWS SES"}
+    catch
+      # In case of malformed XML erlang is not throwing error, but is exiting instead
+      :exit, error ->
+        Logger.error("Malformed response body: #{body}")
+        exit error
+    end
   end
 
   defp base_url(config) do
@@ -243,7 +262,7 @@ defmodule Swoosh.Adapters.AmazonSES do
   defp prepare_header_security_token(headers, %{security_token: token}) do
     Map.put(headers, "X-Amz-Security-Token", token)
   end
-  
+
   defp prepare_header_security_token(headers, _provider_options), do: headers
 
   defp generate_signature(string_to_sign, date_time, region, secret) do
