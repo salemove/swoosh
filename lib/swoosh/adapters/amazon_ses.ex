@@ -119,6 +119,10 @@ defmodule Swoosh.Adapters.AmazonSES do
       message = XMLHelper.first_text(node, "//Message")
 
       %{code: code, message: message}
+    rescue
+      error ->
+        Logger.error("Malformed response body: #{body}", error: error)
+        %{code: "MalformedResponse", message: "Malformed response from AWS SES"}
     catch
       # In case of malformed XML erlang is not throwing error, but is exiting instead
       :exit, error ->

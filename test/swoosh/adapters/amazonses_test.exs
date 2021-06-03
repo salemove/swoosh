@@ -29,6 +29,16 @@ defmodule Swoosh.Adapters.AmazonSESTest do
   </ErrorResponse>
   """
 
+  @error_response_without_code """
+  <ErrorResponse>
+    <Error>
+      <Type>ErrorType</Type>
+      <Message>Error Message</Message>
+    </Error>
+    <RequestId>a97266f7-b062-11e7-b126-6b0f7a9b3379</RequestId>
+  </ErrorResponse>
+  """
+
   @empty_error_response """
   """
 
@@ -162,6 +172,26 @@ defmodule Swoosh.Adapters.AmazonSESTest do
     end
 
     assert AmazonSES.deliver(email, config) == {:error, %{code: "ErrorCode", message: "Error Message"}}
+  end
+
+  @tag capture_log: true
+  test "a sent email that returns a api error without error code parses correctly", %{
+    bypass: bypass,
+    config: config,
+    valid_email: email
+  } do
+    Bypass.expect(bypass, fn conn ->
+      conn = parse(conn)
+      expected_path = "/"
+
+      assert expected_path == conn.request_path
+      assert "POST" == conn.method
+
+      Plug.Conn.resp(conn, 400, @error_response_without_code)
+    end)
+
+    assert AmazonSES.deliver(email, config) ==
+             {:error, %{code: "MalformedResponse", message: "Malformed response from AWS SES"}}
   end
 
   @tag capture_log: true
